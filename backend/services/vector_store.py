@@ -1,43 +1,70 @@
 from sentence_transformers import SentenceTransformer
-from sklearn.metrics.pairwise import cosine_similarity
 from typing import List, Dict, Tuple
 import numpy as np
-import pickle
+import faiss
 import os
+import json
 
 # Initialize the embedding model
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
-# Initialize storage
-embeddings = []
+# Get embedding dimension
+EMBEDDING_DIM = model.get_sentence_embedding_dimension()
+
+# Initialize FAISS index
+index = faiss.IndexFlatIP(EMBEDDING_DIM)  # Inner product index (cosine similarity after normalization)
+
+# Initialize storage for metadata
 documents = []
 metadatas = []
+
+def normalize_vectors(vectors: np.ndarray) -> np.ndarray:
+    """Normalize vectors to unit length for cosine similarity"""
+    return vectors / np.linalg.norm(vectors, axis=1)[:, np.newaxis]
 
 def save_state():
     """Save the index and documents to disk"""
     if not os.path.exists('vector_db'):
         os.makedirs('vector_db')
     
-    with open('vector_db/store.pkl', 'wb') as f:
-        pickle.dump((embeddings, documents, metadatas), f)
+    # Save FAISS index
+    faiss.write_index(index, 'vector_db/vectors.faiss')
+    
+    # Save documents and metadata
+    with open('vector_db/metadata.json', 'w') as f:
+        json.dump({
+            'documents': documents,
+            'metadata': metadatas
+        }, f)
 
 def load_state():
     """Load the index and documents from disk"""
-    global embeddings, documents, metadatas
+    global index, documents, metadatas
     
-    if os.path.exists('vector_db/store.pkl'):
-        with open('vector_db/store.pkl', 'rb') as f:
-            embeddings, documents, metadatas = pickle.load(f)
+    if os.path.exists('vector_db/vectors.faiss') and os.path.exists('vector_db/metadata.json'):
+        # Load FAISS index
+        index = faiss.read_index('vector_db/vectors.faiss')
+        
+        # Load documents and metadata
+        with open('vector_db/metadata.json', 'r') as f:
+            data = json.load(f)
+            documents = data['documents']
+            metadatas = data['metadata']
 
 async def add_documents(texts: List[str], metadatas_list: List[Dict], ids: List[str]) -> None:
     """
     Add documents to the vector store with their embeddings
     """
     # Generate embeddings
-    new_embeddings = model.encode(texts)
+    embeddings = model.encode(texts)
+    
+    # Normalize vectors for cosine similarity
+    embeddings = normalize_vectors(embeddings)
+    
+    # Add to FAISS index
+    index.add(embeddings.astype(np.float32))
     
     # Add to storage
-    embeddings.extend(new_embeddings)
     documents.extend(texts)
     metadatas.extend(metadatas_list)
     
@@ -53,30 +80,39 @@ async def search_documents(query: str, n_results: int = 3, document_id: str = No
         document_id: Optional document ID to filter results
     Returns list of (text, metadata) tuples
     """
-    if not embeddings:
+    if index.ntotal == 0:
         return []
     
-    # Generate query embedding
-    query_embedding = model.encode([query])[0].reshape(1, -1)
+    # Generate query embedding and normalize
+    query_embedding = model.encode([query])[0]
+    query_embedding = normalize_vectors(query_embedding.reshape(1, -1))
     
-    # Calculate cosine similarities
-    similarities = cosine_similarity(query_embedding, embeddings)[0]
+    # Search in FAISS index
+    scores, indices = index.search(query_embedding.astype(np.float32), index.ntotal)
     
-    # Filter by document_id if provided
-    if document_id:
-        # Create a mask for the specified document
-        doc_mask = np.array([meta.get('document_id') == document_id for meta in metadatas])
-        # Apply mask to similarities
-        similarities = similarities * doc_mask
-    
-    # Get top k indices
-    top_indices = np.argsort(similarities)[-n_results:][::-1]
-    
-    # Return results (filter out zero similarity results)
+    # Get all results and filter by document_id if provided
     results = []
-    for idx in top_indices:
-        if similarities[idx] > 0:  # Only include if similarity > 0
-            results.append((documents[idx], metadatas[idx]))
+    seen_indices = set()
+    
+    for idx in indices[0]:
+        # Skip if we've seen this index or score is 0
+        if idx in seen_indices or scores[0][len(seen_indices)] <= 0:
+            continue
+            
+        # Get document and metadata
+        doc = documents[idx]
+        meta = metadatas[idx]
+        
+        # Filter by document_id if provided
+        if document_id and meta.get('document_id') != document_id:
+            continue
+            
+        results.append((doc, meta))
+        seen_indices.add(idx)
+        
+        # Break if we have enough results
+        if len(results) >= n_results:
+            break
     
     return results
 
