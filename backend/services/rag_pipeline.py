@@ -28,12 +28,17 @@ Answer:"""
     
     return prompt
 
-async def query_documents(query: str, n_results: int = 3) -> List[Tuple[str, Dict]]:
+async def query_documents(query: str, document_id: str = None, n_results: int = 3) -> List[Tuple[str, Dict]]:
     """
     Query the document store and return relevant chunks with their metadata
+    Args:
+        query: The search query
+        document_id: Optional document ID to filter results
+        n_results: Number of results to return
+    Returns list of (text, metadata) tuples
     """
     # Search for relevant documents
-    results = await vector_search(query, n_results)
+    results = await vector_search(query, n_results, document_id)
     return results
 
 async def query_documents_old(query: str) -> Tuple[str, List[str]]:

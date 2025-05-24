@@ -19,6 +19,7 @@ client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 router = APIRouter()
 
 class QueryRequest(BaseModel):
+    docId: str
     query: str
 
 class QueryResponse(BaseModel):
@@ -60,14 +61,19 @@ async def query(
     request: QueryRequest,
     db: Session = Depends(get_db)
 ):
-    """Query the processed documents"""
+    """Query a specific document"""
     try:
+        # Verify document exists
+        document = db.query(DBDocument).filter(DBDocument.id == request.docId).first()
+        if not document:
+            raise HTTPException(status_code=404, detail="Document not found")
+
         # Get relevant documents
-        results = await query_documents(request.query)
+        results = await query_documents(request.query, document_id=request.docId)
         
         if not results:
             return QueryResponse(
-                answer="I don't have enough context to answer your question. Please upload some PDF documents first.",
+                answer="I don't have enough context to answer your question about this document.",
                 sources=[]
             )
         
@@ -78,7 +84,7 @@ async def query(
         ])
         
         # Generate prompt
-        prompt = f"""Based on the following context from PDF documents, please answer the question.
+        prompt = f"""Based on the following context from the specified PDF document, please answer the question.
 If you cannot answer based on the provided context, please say so.
 
 Context:
@@ -131,20 +137,3 @@ async def get_document(
     if not document:
         raise HTTPException(status_code=404, detail="Document not found")
     return document
-
-@router.get("/documents/stats", response_model=DocumentStats)
-async def get_document_stats(db: Session = Depends(get_db)):
-    """Get overall statistics about processed documents"""
-    stats = db.query(
-        func.count(DBDocument.id).label("total_documents"),
-        func.sum(DBDocument.total_pages).label("total_pages"),
-        func.sum(DBDocument.total_chunks).label("total_chunks"),
-        func.sum(DBDocument.file_size).label("total_size")
-    ).first()
-    
-    return DocumentStats(
-        total_documents=stats.total_documents or 0,
-        total_pages=stats.total_pages or 0,
-        total_chunks=stats.total_chunks or 0,
-        total_size=stats.total_size or 0
-    )
