@@ -70,12 +70,12 @@ uvicorn backend.main:app --reload
 
 1. Build the Docker image:
 ```bash
-docker build -t rag-system .
+docker build -t llm-project .
 ```
 
 2. Run the container:
 ```bash
-docker run -p 8000:8000 -e GEMINI_API_KEY=your_api_key_here rag-system
+docker run -p 8000:8000 --name llm-container llm-project:latest
 ```
 
 ## API Usage
