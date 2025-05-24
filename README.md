@@ -41,6 +41,7 @@ The system uses a modern tech stack:
 1. Clone the repository:
 ```bash
 git clone https://github.com/ayushdixit210801/LLM-Project.git
+cd LLM-Project
 ```
 
 2. Create a virtual environment:
