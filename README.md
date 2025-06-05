@@ -70,12 +70,12 @@ uvicorn backend.main:app --reload
 
 1. Build the Docker image:
 ```bash
-docker build -t rag-system .
+docker build -t llm-project .
 ```
 
 2. Run the container:
 ```bash
-docker run -p 8000:8000 -e GEMINI_API_KEY=your_api_key_here rag-system
+docker run -p 8000:8000 --name llm-container llm-project:latest
 ```
 
 ## API Usage
@@ -108,7 +108,6 @@ The API is available at `http://localhost:8000` with interactive documentation a
 - **Request**:
 ```json
 {
-    "docId": "document_id",
     "query": "What is the main topic of chapter 3?"
 }
 ```
@@ -128,15 +127,11 @@ The API is available at `http://localhost:8000` with interactive documentation a
   - `limit` (optional): Maximum number of documents to return
 - **Response**: List of document metadata
 
-#### 4. Get Document
-- **Endpoint**: GET `/documents/{document_id}`
-- **Purpose**: Get metadata for a specific document
-- **Response**: Document metadata
 
 ## How It Works
 
 1. **Document Processing**:
-   - PDF is uploaded and text is extracted
+   - PDFs are uploaded and text is extracted
    - Text is split into chunks with overlap
    - Each chunk is embedded using Sentence Transformers
    - Embeddings and metadata are stored in the vector store
